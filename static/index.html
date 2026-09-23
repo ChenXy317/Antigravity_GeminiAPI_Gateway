@@ -86,30 +86,68 @@ tailwind.config={
         </div>
         <p class="text-xs text-red-300" x-show="!antigravity.logged_in" x-text="antigravity.error || '未读取到凭据，请在 Antigravity 中完成登录'"></p>
         
-        <!-- 周额度进度条 -->
-        <div>
-          <div class="flex justify-between text-[11px] text-zinc-400 mb-1">
-            <span>周限额剩余</span>
-            <span class="font-mono text-zinc-200" x-text="weeklyQuota ? weeklyQuota.remaining_percent+'%' : '—'"></span>
+        <!-- 分组额度展示 (Gemini Models 与 Claude and GPT models) -->
+        <template x-if="quotaGroups && quotaGroups.length > 0">
+          <div class="space-y-3 pt-1">
+            <template x-for="grp in quotaGroups" :key="grp.display_name">
+              <div class="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/60 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-zinc-200" x-text="grp.display_name"></span>
+                </div>
+                <!-- 该组周限额 -->
+                <div x-show="grp.weekly">
+                  <div class="flex justify-between text-[11px] text-zinc-400 mb-0.5">
+                    <span>周限额剩余</span>
+                    <span class="font-mono text-zinc-200" x-text="grp.weekly ? grp.weekly.remaining_percent+'%' : '—'"></span>
+                  </div>
+                  <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500" :style="'width:'+(grp.weekly ? grp.weekly.remaining_percent : 100)+'%'"></div>
+                  </div>
+                  <div class="text-[10px] text-zinc-500 mt-0.5" x-show="grp.weekly && grp.weekly.reset_time">
+                    重置: <span x-text="fmtReset(grp.weekly.reset_time)"></span>
+                  </div>
+                </div>
+                <!-- 该组 5 小时限额 -->
+                <div x-show="grp.five_hour">
+                  <div class="flex justify-between text-[11px] text-zinc-400 mb-0.5">
+                    <span>5 小时限额剩余</span>
+                    <span class="font-mono text-zinc-200" x-text="grp.five_hour ? grp.five_hour.remaining_percent+'%' : '—'"></span>
+                  </div>
+                  <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all duration-500" :style="'width:'+(grp.five_hour ? grp.five_hour.remaining_percent : 100)+'%'"></div>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
-          <div class="h-2 rounded-full bg-zinc-800 overflow-hidden">
-            <div class="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500" :style="'width:'+(weeklyQuota ? weeklyQuota.remaining_percent : 100)+'%'"></div>
-          </div>
-          <div class="text-[11px] text-zinc-500 mt-1" x-show="weeklyQuota && weeklyQuota.reset_time">
-            重置时间：<span x-text="fmtReset(weeklyQuota.reset_time)"></span>
-          </div>
-        </div>
+        </template>
 
-        <!-- 5小时限额 -->
-        <div x-show="fiveHourQuota">
-          <div class="flex justify-between text-[11px] text-zinc-400 mb-1">
-            <span>5 小时限额剩余</span>
-            <span class="font-mono text-zinc-200" x-text="fiveHourQuota ? fiveHourQuota.remaining_percent+'%' : '—'"></span>
+        <!-- 单组兜底模式 -->
+        <template x-if="!quotaGroups || quotaGroups.length === 0">
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-[11px] text-zinc-400 mb-1">
+                <span>周限额剩余</span>
+                <span class="font-mono text-zinc-200" x-text="weeklyQuota ? weeklyQuota.remaining_percent+'%' : '—'"></span>
+              </div>
+              <div class="h-2 rounded-full bg-zinc-800 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500" :style="'width:'+(weeklyQuota ? weeklyQuota.remaining_percent : 100)+'%'"></div>
+              </div>
+              <div class="text-[11px] text-zinc-500 mt-1" x-show="weeklyQuota && weeklyQuota.reset_time">
+                重置时间：<span x-text="fmtReset(weeklyQuota.reset_time)"></span>
+              </div>
+            </div>
+            <div x-show="fiveHourQuota">
+              <div class="flex justify-between text-[11px] text-zinc-400 mb-1">
+                <span>5 小时限额剩余</span>
+                <span class="font-mono text-zinc-200" x-text="fiveHourQuota ? fiveHourQuota.remaining_percent+'%' : '—'"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all duration-500" :style="'width:'+(fiveHourQuota ? fiveHourQuota.remaining_percent : 100)+'%'"></div>
+              </div>
+            </div>
           </div>
-          <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-            <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all duration-500" :style="'width:'+(fiveHourQuota ? fiveHourQuota.remaining_percent : 100)+'%'"></div>
-          </div>
-        </div>
+        </template>
 
         <div class="grid grid-cols-2 gap-2 pt-1">
           <button @click="refreshAuth()" :disabled="refreshing" class="py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium disabled:opacity-50" x-text="refreshing ? '刷新中…' : '刷新凭据'"></button>

@@ -24,6 +24,7 @@ function app() {
     },
     weeklyQuota: null,
     fiveHourQuota: null,
+    quotaGroups: [],
     tier: null,
     tab: "play",
     playMode: "chat",
@@ -103,6 +104,7 @@ function app() {
         }
         this.antigravity = data.antigravity || {};
         if (data.quota && data.quota.quota) {
+          this.quotaGroups = data.quota.quota.groups || [];
           this.weeklyQuota = data.quota.quota.weekly;
           this.fiveHourQuota = data.quota.quota.five_hour;
         }

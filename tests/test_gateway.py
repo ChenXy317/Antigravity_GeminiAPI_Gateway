@@ -48,4 +48,35 @@ def test_update_config_empty_upstream_fallback():
     assert data["server"]["upstream_base_url"].startswith("http")
 
 
+def test_parse_quota_groups():
+    """验证配额多模型组解析与 Gemini 基准配额提取。"""
+    from app.quota import parse_quota
+
+    sample_data = {
+        "groups": [
+            {
+                "displayName": "Gemini Models",
+                "buckets": [
+                    {"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.92, "resetTime": "2026-03-30T10:00:00Z"},
+                    {"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.61},
+                ],
+            },
+            {
+                "displayName": "Claude and GPT models",
+                "buckets": [
+                    {"bucketId": "3p-weekly", "window": "weekly", "remainingFraction": 0.993},
+                    {"bucketId": "3p-5h", "window": "5h", "remainingFraction": 0.989},
+                ],
+            },
+        ]
+    }
+    result = parse_quota(sample_data)
+    assert result["ok"] is True
+    assert len(result["groups"]) == 2
+    assert result["weekly"]["remaining_percent"] == 92.0
+    assert result["five_hour"]["remaining_percent"] == 61.0
+    assert result["groups"][1]["weekly"]["remaining_percent"] == 99.3
+
+
+
 

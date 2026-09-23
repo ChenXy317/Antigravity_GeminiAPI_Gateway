@@ -6,42 +6,56 @@ import httpx
 
 
 def parse_quota(data: Any) -> dict[str, Any]:
-    """解析 retrieveUserQuotaSummary 响应。"""
+    """解析 retrieveUserQuotaSummary 响应，提取模型组配额。"""
     if not isinstance(data, dict):
         return {"ok": False, "error": "quota 响应格式异常"}
 
-    groups = data.get("groups") or []
-    weekly_info: dict[str, Any] | None = None
-    five_hour_info: dict[str, Any] | None = None
+    raw_groups = data.get("groups") or []
+    parsed_groups: list[dict[str, Any]] = []
+    gemini_group: dict[str, Any] | None = None
 
-    for grp in groups:
+    for grp in raw_groups:
+        grp_name = grp.get("displayName") or "Models"
+        grp_desc = grp.get("description") or ""
+        weekly_bucket: dict[str, Any] | None = None
+        five_hour_bucket: dict[str, Any] | None = None
+
         for bucket in grp.get("buckets", []):
             bid = bucket.get("bucketId") or ""
-            if bid == "gemini-weekly" or bucket.get("window") == "weekly":
-                frac = bucket.get("remainingFraction")
-                weekly_info = {
-                    "bucket_id": bid,
-                    "display_name": bucket.get("displayName") or "Weekly Limit Remaining",
-                    "remaining_fraction": float(frac) if frac is not None else 1.0,
-                    "remaining_percent": round(float(frac) * 100, 2) if frac is not None else 100.0,
-                    "reset_time": bucket.get("resetTime") or "",
-                    "description": bucket.get("description") or "",
-                }
-            elif bid == "gemini-5h" or bucket.get("window") == "5h":
-                frac = bucket.get("remainingFraction")
-                five_hour_info = {
-                    "bucket_id": bid,
-                    "display_name": bucket.get("displayName") or "Five Hour Limit Remaining",
-                    "remaining_fraction": float(frac) if frac is not None else 1.0,
-                    "remaining_percent": round(float(frac) * 100, 2) if frac is not None else 100.0,
-                    "reset_time": bucket.get("resetTime") or "",
-                    "description": bucket.get("description") or "",
-                }
+            win = bucket.get("window") or ""
+            frac = bucket.get("remainingFraction")
+            b_info = {
+                "bucket_id": bid,
+                "display_name": bucket.get("displayName") or ("Weekly Limit Remaining" if win == "weekly" else "Five Hour Limit Remaining"),
+                "window": win,
+                "remaining_fraction": float(frac) if frac is not None else 1.0,
+                "remaining_percent": round(float(frac) * 100, 2) if frac is not None else 100.0,
+                "reset_time": bucket.get("resetTime") or "",
+                "description": bucket.get("description") or "",
+            }
+            if win == "weekly" or "weekly" in bid:
+                weekly_bucket = b_info
+            elif win == "5h" or "5h" in bid:
+                five_hour_bucket = b_info
+
+        g_data = {
+            "display_name": grp_name,
+            "description": grp_desc,
+            "weekly": weekly_bucket,
+            "five_hour": five_hour_bucket,
+        }
+        parsed_groups.append(g_data)
+        if "gemini" in grp_name.lower():
+            gemini_group = g_data
+
+    # 基准配额优先采用 Gemini 模型组，若无则使用首个模型组
+    primary = gemini_group or (parsed_groups[0] if parsed_groups else None)
 
     return {
         "ok": True,
-        "weekly": weekly_info,
-        "five_hour": five_hour_info,
+        "groups": parsed_groups,
+        "weekly": primary.get("weekly") if primary else None,
+        "five_hour": primary.get("five_hour") if primary else None,
         "description": data.get("description") or "",
     }
 
