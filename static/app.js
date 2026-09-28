@@ -1,10 +1,13 @@
 function app() {
   return {
+    ...createThemeManager("indigo"),
     version: "",
     healthOk: false,
     needAdmin: false,
     adminKey: localStorage.getItem("gg_admin_key") || "",
     adminError: "",
+    toastText: "",
+    toastOk: true,
     serverCfg: {
       host: "127.0.0.1",
       port: 8789,
@@ -45,7 +48,16 @@ function app() {
       return `http://127.0.0.1:${port}/v1`;
     },
 
+    toast(text, ok = true) {
+      this.toastText = text;
+      this.toastOk = ok;
+      setTimeout(() => {
+        if (this.toastText === text) this.toastText = "";
+      }, 3000);
+    },
+
     async init() {
+      this.initTheme();
       await this.loadConfig();
       await this.fetchStatus();
       if (this.models.length > 0 && !this.playModel) {
@@ -148,12 +160,13 @@ function app() {
       try {
         const resp = await fetch("/api/auth/refresh", { method: "POST", headers: this._headers() });
         if (resp.ok) {
+          this.toast("凭据刷新成功", true);
           await this.fetchStatus();
         } else {
-          alert("凭据刷新失败: " + (await resp.text()));
+          this.toast("凭据刷新失败: " + (await resp.text()), false);
         }
       } catch (e) {
-        alert("网络错误: " + e);
+        this.toast("网络错误: " + e, false);
       } finally {
         this.refreshing = false;
       }
@@ -169,12 +182,12 @@ function app() {
         });
         const data = await resp.json();
         if (data.ok) {
-          alert(`连通成功！模型: ${data.model}\n耗时: ${data.latency_ms} ms\n响应: ${data.reply}`);
+          this.toast(`连通成功！模型: ${data.model} (${data.latency_ms} ms)`, true);
         } else {
-          alert("连通测试失败:\n" + (data.error || JSON.stringify(data)));
+          this.toast("连通测试失败: " + (data.error || JSON.stringify(data)), false);
         }
       } catch (e) {
-        alert("连通测试出错: " + e);
+        this.toast("连通测试出错: " + e, false);
       } finally {
         this.testing = false;
       }
@@ -186,13 +199,13 @@ function app() {
         const resp = await fetch("/api/models/fetch", { method: "POST", headers: this._headers() });
         if (resp.ok) {
           const data = await resp.json();
-          alert(`成功同步 ${data.models.length} 个模型！`);
+          this.toast(`成功同步 ${data.models.length} 个模型`, true);
           await this.fetchStatus();
         } else {
-          alert("同步模型失败: " + (await resp.text()));
+          this.toast("同步模型失败: " + (await resp.text()), false);
         }
       } catch (e) {
-        alert("同步出错: " + e);
+        this.toast("同步出错: " + e, false);
       } finally {
         this.syncingModels = false;
       }
@@ -215,6 +228,7 @@ function app() {
         await fetch("/api/logs", { method: "DELETE", headers: this._headers() });
         this.logs = [];
         this.logTotal = 0;
+        this.toast("日志已清空", true);
       } catch (e) {}
     },
 
@@ -233,7 +247,7 @@ function app() {
           body: JSON.stringify({ server: srv }),
         });
         if (resp.ok) {
-          alert("设置已保存");
+          this.toast("设置已保存", true);
           await this.loadConfig();
           await this.fetchStatus();
         } else {
@@ -244,10 +258,10 @@ function app() {
           } catch (_) {
             errText = await resp.text();
           }
-          alert("保存失败: " + errText);
+          this.toast("保存失败: " + errText, false);
         }
       } catch (e) {
-        alert("网络错误: " + e);
+        this.toast("网络错误: " + e, false);
       }
     },
 
@@ -333,7 +347,7 @@ function app() {
 
     copy(text) {
       navigator.clipboard.writeText(text);
-      alert("已复制到剪贴板: " + text);
+      this.toast("已复制到剪贴板", true);
     },
   };
 }
