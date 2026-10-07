@@ -43,11 +43,14 @@ DEFAULT_MODEL_ALIASES: dict[str, str] = {
     "claude-sonnet": "claude-sonnet-4-6",
     "claude-3-opus": "claude-opus-4-6-thinking",
     "claude-3-opus-latest": "claude-opus-4-6-thinking",
-    "claude-opus": "claude-opus-4-6-thinking",
-    "o1": "gemini-3.1-pro-high",
-    "o1-preview": "gemini-3.1-pro-high",
+    "o1": "gemini-pro-agent",
+    "o1-preview": "gemini-pro-agent",
     "o1-mini": "gemini-3.8-flash-high",
     "o3-mini": "gemini-3.8-flash-high",
+}
+
+UPSTREAM_MODEL_REWRITES: dict[str, str] = {
+    "gemini-3.1-pro-high": "gemini-pro-agent",
 }
 
 
@@ -104,18 +107,18 @@ class ServerConfig(BaseModel):
 def resolve_model_name(requested_model: str, cfg: ServerConfig) -> str:
     """根据配置与别名表解析目标模型名称。"""
     if not requested_model:
-        return cfg.default_model
-    for m in cfg.models:
-        if m.id == requested_model:
-            return requested_model
+        return UPSTREAM_MODEL_REWRITES.get(cfg.default_model, cfg.default_model)
+    resolved = requested_model
     aliases = cfg.model_aliases or DEFAULT_MODEL_ALIASES
     if requested_model in aliases:
-        return aliases[requested_model]
-    lower_req = requested_model.lower()
-    for alias_k, alias_v in aliases.items():
-        if alias_k.lower() == lower_req:
-            return alias_v
-    return requested_model
+        resolved = aliases[requested_model]
+    else:
+        lower_req = requested_model.lower()
+        for alias_k, alias_v in aliases.items():
+            if alias_k.lower() == lower_req:
+                resolved = alias_v
+                break
+    return UPSTREAM_MODEL_REWRITES.get(resolved, resolved)
 
 
 class GatewayConfig(BaseModel):

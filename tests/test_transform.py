@@ -269,11 +269,34 @@ def test_full_generation_config_passthrough():
     assert cfg["topK"] == 40
     assert cfg["maxOutputTokens"] == 1500
     assert cfg["stopSequences"] == ["END", "STOP"]
-    assert cfg["presencePenalty"] == 0.5
-    assert cfg["frequencyPenalty"] == 0.2
+    # 确保上游不支持的 penalty 不会透传到 generationConfig，避免触发 400
+    assert "presencePenalty" not in cfg
+    assert "frequencyPenalty" not in cfg
     assert cfg["seed"] == 42
     assert cfg["responseMimeType"] == "application/json"
     assert cfg["thinkingConfig"]["thinkingBudget"] == 2048
+
+
+def test_empty_input_fallback():
+    """验证空输入与仅系统指令场景的安全兜底。"""
+    # 场景 1：仅系统提示词
+    req1 = ir_to_gemini(to_ir("chat", {"messages": [{"role": "system", "content": "You are assistant."}]}))
+    assert len(req1["request"]["contents"]) == 1
+    assert req1["request"]["contents"][0]["role"] == "user"
+    assert req1["request"]["contents"][0]["parts"][0]["text"] == " "
+
+    # 场景 2：消息文本为空
+    req2 = ir_to_gemini(to_ir("chat", {"messages": [{"role": "user", "content": ""}]}))
+    assert req2["request"]["contents"][0]["parts"][0]["text"] == " "
+
+
+def test_upstream_error_parsing():
+    """验证上游错误体详情解析。"""
+    from app.upstream import UpstreamHTTPError
+    body = b'{"error": {"code": 400, "message": "Penalty is not enabled for this model", "status": "INVALID_ARGUMENT"}}'
+    err = UpstreamHTTPError(400, body)
+    assert "Penalty is not enabled for this model" in str(err)
+
 
 
 

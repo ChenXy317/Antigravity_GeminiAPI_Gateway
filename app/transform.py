@@ -130,13 +130,28 @@ def ir_to_gemini(
                     }
                 })
 
+        # 确保 parts 不为空且包含有效输入
         if not parts:
-            parts.append({"text": ""})
+            parts.append({"text": " "})
+        else:
+            has_substance = any(
+                p.get("functionCall") or p.get("inlineData") or (p.get("text") and p["text"].strip())
+                for p in parts
+            )
+            if not has_substance:
+                for p in parts:
+                    if "text" in p and not p["text"].strip():
+                        p["text"] = " "
+                        break
 
         if contents and contents[-1]["role"] == gemini_role:
             contents[-1]["parts"].extend(parts)
         else:
             contents.append({"role": gemini_role, "parts": parts})
+
+    # 仅存在系统提示词或内容为空时补齐占位用户消息
+    if not contents:
+        contents.append({"role": "user", "parts": [{"text": " "}]})
 
     req: dict[str, Any] = {
         "contents": contents,
@@ -158,10 +173,6 @@ def ir_to_gemini(
         gen_cfg["maxOutputTokens"] = ir.max_tokens
     if ir.stop:
         gen_cfg["stopSequences"] = ir.stop if isinstance(ir.stop, list) else [ir.stop]
-    if ir.presence_penalty is not None:
-        gen_cfg["presencePenalty"] = ir.presence_penalty
-    if ir.frequency_penalty is not None:
-        gen_cfg["frequencyPenalty"] = ir.frequency_penalty
     if ir.seed is not None:
         gen_cfg["seed"] = ir.seed
 
@@ -183,7 +194,11 @@ def ir_to_gemini(
         gen_cfg["thinkingConfig"] = {"thinkingBudget": ir.thinking_budget}
 
     if ir.generation_config and isinstance(ir.generation_config, dict):
-        gen_cfg.update(ir.generation_config)
+        filtered_gc = {
+            k: v for k, v in ir.generation_config.items()
+            if k not in ("presencePenalty", "frequencyPenalty", "presence_penalty", "frequency_penalty")
+        }
+        gen_cfg.update(filtered_gc)
 
     if gen_cfg:
         req["generationConfig"] = gen_cfg

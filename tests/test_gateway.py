@@ -39,7 +39,8 @@ def test_model_alias_resolution():
     cfg = config_manager.config.server
     assert resolve_model_name("gpt-4o", cfg) == "gemini-3.8-flash-high"
     assert resolve_model_name("claude-3-5-sonnet", cfg) == "claude-sonnet-4-6"
-    assert resolve_model_name("o1", cfg) == "gemini-3.1-pro-high"
+    assert resolve_model_name("o1", cfg) == "gemini-pro-agent"
+    assert resolve_model_name("gemini-3.1-pro-high", cfg) == "gemini-pro-agent"
 
 
 def test_legacy_functions_compatibility():

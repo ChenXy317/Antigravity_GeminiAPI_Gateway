@@ -11,7 +11,17 @@ import httpx
 
 class UpstreamHTTPError(Exception):
     def __init__(self, status_code: int, body: bytes):
-        super().__init__(f"上游 HTTP 错误: {status_code}")
+        msg = f"上游 HTTP 错误: {status_code}"
+        try:
+            data = json.loads(body.decode("utf-8", errors="ignore"))
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict) and err.get("message"):
+                msg += f" - {err['message']}"
+            elif isinstance(data, dict) and data.get("message"):
+                msg += f" - {data['message']}"
+        except Exception:
+            pass
+        super().__init__(msg)
         self.status_code = status_code
         self.body = body
 
