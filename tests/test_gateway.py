@@ -27,6 +27,40 @@ def test_models_auth():
     assert data["object"] == "list"
     assert len(data["data"]) > 0
 
+    # 验证单模型查询端点
+    r_single = client.get("/v1/models/gemini-3.8-flash-high", headers={"Authorization": f"Bearer {current_key}"})
+    assert r_single.status_code == 200
+    assert r_single.json()["id"] == "gemini-3.8-flash-high"
+
+
+def test_model_alias_resolution():
+    """验证常用 OpenAI 别名正确映射。"""
+    from app.config import config_manager, resolve_model_name
+    cfg = config_manager.config.server
+    assert resolve_model_name("gpt-4o", cfg) == "gemini-3.8-flash-high"
+    assert resolve_model_name("claude-3-5-sonnet", cfg) == "claude-sonnet-4-6"
+    assert resolve_model_name("o1", cfg) == "gemini-3.1-pro-high"
+
+
+def test_legacy_functions_compatibility():
+    """验证旧版 functions 字段自动升级兼容。"""
+    from app.transform import to_ir
+    body = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "查天气"}],
+        "functions": [
+            {
+                "name": "get_weather",
+                "description": "获取天气",
+                "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+            }
+        ],
+    }
+    ir = to_ir("chat", body)
+    assert ir.tools is not None
+    assert len(ir.tools) == 1
+    assert ir.tools[0].name == "get_weather"
+
 
 def test_manage_status_localhost():
     # 本机默认情况下无需 admin key 即可查看状态

@@ -20,6 +20,7 @@ from .config import (
     config_manager,
     effective_bind_host,
     is_public_bind,
+    resolve_model_name,
     server_public_dict,
 )
 from .converter.common import sse_format as _sse
@@ -134,17 +135,47 @@ def _is_retryable(status: int) -> bool:
 
 @proxy_router.get("/models")
 async def list_models(request: Request):
+    """获取可用模型列表。"""
     _auth_check(request)
     cfg = config_manager.config.server
     data = []
+    seen = set()
     for m in cfg.models:
+        seen.add(m.id)
         data.append({
             "id": m.id,
             "object": "model",
             "created": int(STARTED),
             "owned_by": "google-antigravity",
         })
+    aliases = cfg.model_aliases or {}
+    for alias in aliases:
+        if alias not in seen:
+            seen.add(alias)
+            data.append({
+                "id": alias,
+                "object": "model",
+                "created": int(STARTED),
+                "owned_by": "openai" if (alias.startswith("gpt") or alias.startswith("o")) else "anthropic",
+            })
     return {"object": "list", "data": data}
+
+
+@proxy_router.get("/models/{model_id:path}")
+async def retrieve_model(model_id: str, request: Request):
+    """获取单个模型详情。"""
+    _auth_check(request)
+    cfg = config_manager.config.server
+    resolved = resolve_model_name(model_id, cfg)
+    target = next((m for m in cfg.models if m.id == resolved), None)
+    if not target and not cfg.allow_unknown_models and model_id not in (cfg.model_aliases or {}):
+        raise HTTPException(404, f"模型不存在: {model_id}")
+    return {
+        "id": model_id,
+        "object": "model",
+        "created": int(STARTED),
+        "owned_by": "google-antigravity",
+    }
 
 
 @proxy_router.post("/chat/completions")
@@ -172,10 +203,11 @@ async def _handle_proxy_request(request: Request, inbound: str):
     except Exception:
         raise HTTPException(400, "请求体需为有效 JSON")
 
-    model_req = body.get("model") or cfg.default_model
+    model_raw = body.get("model") or cfg.default_model
+    model_req = resolve_model_name(model_raw, cfg)
     known = any(m.id == model_req for m in cfg.models)
     if not known and not cfg.allow_unknown_models:
-        raise HTTPException(400, f"未知模型: {model_req}")
+        raise HTTPException(400, f"未知模型: {model_raw}")
 
     stream_req = bool(body.get("stream"))
     try:
@@ -183,8 +215,7 @@ async def _handle_proxy_request(request: Request, inbound: str):
     except Exception as e:
         raise HTTPException(400, f"协议解析失败: {e}")
 
-    if not ir.model:
-        ir.model = model_req
+    ir.model = model_req
 
     payload = ir_to_gemini(ir, project=cfg.project, strip_base_persona=cfg.strip_base_persona)
     t0 = time.time()

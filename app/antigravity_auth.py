@@ -63,6 +63,7 @@ def _decode_jwt_email(id_token: str) -> str:
 
 
 def _parse_expiry(expiry_val: Any) -> datetime | None:
+    """解析凭据到期时间为 UTC 感知 datetime 对象。"""
     if not expiry_val:
         return None
     if isinstance(expiry_val, (int, float)):
@@ -74,7 +75,10 @@ def _parse_expiry(expiry_val: Any) -> datetime | None:
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(s)
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
     except Exception:
         return None
 
@@ -178,7 +182,16 @@ class AntigravityAuthManager:
         return f"{masked_local}@{domain}"
 
     def load_session(self) -> AntigravitySession:
+        """从系统凭据管理器、本地缓存或环境变量加载凭据。"""
         raw_data = _read_windows_credential()
+
+        if raw_data:
+            try:
+                cache_file = _cache_path()
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                cache_file.write_text(json.dumps(raw_data, indent=2), encoding="utf-8")
+            except Exception:
+                pass
 
         if not raw_data:
             cache_file = _cache_path()
@@ -221,18 +234,31 @@ class AntigravityAuthManager:
         return self._session
 
     async def get_session(self, force_refresh: bool = False) -> AntigravitySession:
+        """获取当前有效会话凭据。"""
         async with self._lock:
             if self._session is None:
                 self.load_session()
 
             assert self._session is not None
             if force_refresh or self._session.expired:
+                try:
+                    reloaded = self.load_session()
+                    if not reloaded.expired:
+                        return self._session
+                except Exception:
+                    pass
+
                 if self._session.refresh_token:
-                    await self._do_refresh()
-                elif self._session.expired:
-                    self.load_session()
-                    if self._session.expired and self._session.refresh_token:
+                    try:
                         await self._do_refresh()
+                    except Exception as refresh_err:
+                        try:
+                            reloaded_retry = self.load_session()
+                            if not reloaded_retry.expired:
+                                return self._session
+                        except Exception:
+                            pass
+                        raise refresh_err
 
             return self._session
 

@@ -15,7 +15,7 @@
     "allow_unknown_models": true,
     "project": "aicode-consumers",
     "upstream_base_url": "https://daily-cloudcode-pa.googleapis.com",
-    "strip_base_persona": true,
+    "strip_base_persona": false,
     "models": [
       { "id": "gemini-3.8-flash-high", "display_name": "Gemini 3.8 Flash (High)" },
       { "id": "gemini-3.8-flash-medium", "display_name": "Gemini 3.8 Flash (Medium)" },

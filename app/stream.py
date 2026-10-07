@@ -48,15 +48,12 @@ def parse_gemini_event(data: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             txt = p.get("text")
             thought_val = p.get("thought")
-            thought_sig = p.get("thoughtSignature")
 
             if thought_val is True:
                 if txt:
                     out.append({"kind": "thinking", "thinking": txt})
             elif isinstance(thought_val, str) and thought_val:
                 out.append({"kind": "thinking", "thinking": thought_val})
-            elif isinstance(thought_sig, str) and thought_sig:
-                out.append({"kind": "thinking", "thinking": thought_sig})
             else:
                 if txt:
                     out.append({"kind": "text", "text": txt})

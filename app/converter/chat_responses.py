@@ -69,6 +69,15 @@ def chat_to_ir(body: dict[str, Any]) -> IRRequest:
                 )
                 for tc in m["tool_calls"]
             ]
+        elif m.get("function_call"):
+            fc = m["function_call"]
+            tool_calls = [
+                IRToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=fc.get("name") or "",
+                    arguments=fc.get("arguments") or "{}",
+                )
+            ]
         if role == "tool":
             messages.append(IRMessage(role="tool", content=content, tool_call_id=m.get("tool_call_id") or m.get("name")))
         else:
@@ -87,20 +96,54 @@ def chat_to_ir(body: dict[str, Any]) -> IRRequest:
         for t in body["tools"]:
             fn = t.get("function") or t
             tools.append(
+                IRTool(name=fn.get("name") or "", description=fn.get("description"), parameters=fn.get("parameters") or fn.get("input_schema"))
+            )
+    elif body.get("functions"):
+        tools = []
+        for fn in body["functions"]:
+            tools.append(
                 IRTool(name=fn.get("name") or "", description=fn.get("description"), parameters=fn.get("parameters"))
             )
+
+    # 思考预算解析
+    thinking_budget = None
+    if "thinking_budget" in body and body["thinking_budget"] is not None:
+        try:
+            thinking_budget = int(body["thinking_budget"])
+        except Exception:
+            pass
+    elif isinstance(body.get("thinking"), dict):
+        tb = body["thinking"].get("budget_tokens") or body["thinking"].get("thinking_budget")
+        if tb is not None:
+            try:
+                thinking_budget = int(tb)
+            except Exception:
+                pass
+    elif "reasoning_effort" in body:
+        effort = str(body["reasoning_effort"]).lower()
+        effort_map = {"low": 1024, "medium": 2048, "high": 4096, "none": 0, "0": 0}
+        thinking_budget = effort_map.get(effort)
+
+    raw_gc = body.get("generationConfig") or body.get("generation_config")
 
     return IRRequest(
         model=model,
         messages=messages,
-        items=messages_to_items(messages),
+        items=[],
         tools=tools,
-        tool_choice=body.get("tool_choice"),
+        tool_choice=body.get("tool_choice") or body.get("function_call"),
         stream=bool(body.get("stream")),
         temperature=body.get("temperature"),
         max_tokens=body.get("max_tokens") or body.get("max_completion_tokens"),
         top_p=body.get("top_p"),
+        top_k=body.get("top_k") if body.get("top_k") is not None else body.get("topK"),
+        presence_penalty=body.get("presence_penalty") if body.get("presence_penalty") is not None else body.get("presencePenalty"),
+        frequency_penalty=body.get("frequency_penalty") if body.get("frequency_penalty") is not None else body.get("frequencyPenalty"),
+        seed=body.get("seed"),
+        response_format=body.get("response_format"),
+        thinking_budget=thinking_budget,
         stop=body.get("stop"),
+        generation_config=raw_gc if isinstance(raw_gc, dict) else None,
         extra={
             k: v
             for k, v in body.items()
@@ -113,8 +156,22 @@ def chat_to_ir(body: dict[str, Any]) -> IRRequest:
                 "stream",
                 "temperature",
                 "max_tokens",
+                "max_completion_tokens",
                 "top_p",
+                "top_k",
+                "topK",
                 "stop",
+                "presence_penalty",
+                "presencePenalty",
+                "frequency_penalty",
+                "frequencyPenalty",
+                "seed",
+                "response_format",
+                "thinking_budget",
+                "thinking",
+                "reasoning_effort",
+                "generationConfig",
+                "generation_config",
             }
         },
     )

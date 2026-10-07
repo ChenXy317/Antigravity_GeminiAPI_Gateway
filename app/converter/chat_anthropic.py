@@ -156,6 +156,21 @@ def anthropic_to_ir(body: dict[str, Any]) -> IRRequest:
                 )
             )
 
+    thinking_budget = None
+    if isinstance(body.get("thinking"), dict):
+        th_type = body["thinking"].get("type")
+        if th_type == "enabled":
+            tb = body["thinking"].get("budget_tokens")
+            if tb is not None:
+                try:
+                    thinking_budget = int(tb)
+                except Exception:
+                    pass
+        elif th_type == "disabled":
+            thinking_budget = 0
+
+    raw_gc = body.get("generationConfig") or body.get("generation_config")
+
     return IRRequest(
         model=model,
         messages=messages,
@@ -166,7 +181,10 @@ def anthropic_to_ir(body: dict[str, Any]) -> IRRequest:
         temperature=body.get("temperature"),
         max_tokens=body.get("max_tokens"),
         top_p=body.get("top_p"),
+        top_k=body.get("top_k"),
         stop=body.get("stop_sequences"),
+        thinking_budget=thinking_budget,
+        generation_config=raw_gc if isinstance(raw_gc, dict) else None,
         extra={
             k: v
             for k, v in body.items()
@@ -180,7 +198,11 @@ def anthropic_to_ir(body: dict[str, Any]) -> IRRequest:
                 "temperature",
                 "max_tokens",
                 "top_p",
+                "top_k",
                 "stop_sequences",
+                "thinking",
+                "generationConfig",
+                "generation_config",
             }
         },
     )

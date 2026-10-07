@@ -142,9 +142,6 @@ def ir_to_gemini(
         "contents": contents,
     }
 
-    if strip_base_persona:
-        system_texts.append(BASE_PERSONA_OVERRIDE)
-
     if system_texts:
         req["systemInstruction"] = {
             "parts": [{"text": "\n\n".join(system_texts)}]
@@ -155,10 +152,38 @@ def ir_to_gemini(
         gen_cfg["temperature"] = ir.temperature
     if ir.top_p is not None:
         gen_cfg["topP"] = ir.top_p
+    if ir.top_k is not None:
+        gen_cfg["topK"] = ir.top_k
     if ir.max_tokens is not None:
         gen_cfg["maxOutputTokens"] = ir.max_tokens
     if ir.stop:
         gen_cfg["stopSequences"] = ir.stop if isinstance(ir.stop, list) else [ir.stop]
+    if ir.presence_penalty is not None:
+        gen_cfg["presencePenalty"] = ir.presence_penalty
+    if ir.frequency_penalty is not None:
+        gen_cfg["frequencyPenalty"] = ir.frequency_penalty
+    if ir.seed is not None:
+        gen_cfg["seed"] = ir.seed
+
+    if ir.response_format:
+        rf = ir.response_format
+        if isinstance(rf, str) and rf.lower() in ("json", "json_object"):
+            gen_cfg["responseMimeType"] = "application/json"
+        elif isinstance(rf, dict):
+            rf_type = rf.get("type") or ""
+            if rf_type in ("json_object", "json"):
+                gen_cfg["responseMimeType"] = "application/json"
+            elif rf_type == "json_schema":
+                gen_cfg["responseMimeType"] = "application/json"
+                schema = (rf.get("json_schema") or {}).get("schema") or rf.get("schema")
+                if schema:
+                    gen_cfg["responseSchema"] = schema
+
+    if ir.thinking_budget is not None:
+        gen_cfg["thinkingConfig"] = {"thinkingBudget": ir.thinking_budget}
+
+    if ir.generation_config and isinstance(ir.generation_config, dict):
+        gen_cfg.update(ir.generation_config)
 
     if gen_cfg:
         req["generationConfig"] = gen_cfg
@@ -199,15 +224,12 @@ def gemini_to_ir_response(data: dict[str, Any], fallback_model: str) -> IRRespon
             continue
         txt = p.get("text")
         thought_val = p.get("thought")
-        thought_sig = p.get("thoughtSignature")
 
         if thought_val is True:
             if txt:
                 reasoning_parts.append(txt)
         elif isinstance(thought_val, str) and thought_val:
             reasoning_parts.append(thought_val)
-        elif isinstance(thought_sig, str) and thought_sig:
-            reasoning_parts.append(thought_sig)
         else:
             if txt:
                 text_parts.append(txt)

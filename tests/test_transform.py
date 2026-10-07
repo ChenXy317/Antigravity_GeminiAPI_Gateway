@@ -66,6 +66,31 @@ def test_gemini_to_ir_response():
     assert any(c["type"] == "text" for c in anthropic_out["content"])
 
 
+def test_gemini_to_ir_response_with_thought_signature():
+    """验证包含 thoughtSignature 字段时正文正常提取。"""
+    sample_resp = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "thoughtSignature": "EsmtAQrFrQEBaRR9E49M...",
+                                "text": "测试通过。",
+                            }
+                        ],
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+    ir_resp = gemini_to_ir_response(sample_resp, fallback_model="gemini-3.8-flash-high")
+    assert ir_resp.content == "测试通过。"
+
+
+
 def test_tool_call_name_mapping():
     # 模拟多轮对话：客户端返回工具执行结果时仅有 tool_call_id
     body = {
@@ -208,16 +233,48 @@ def test_strip_base_persona_override():
     }
     ir = to_ir("chat", body)
 
-    # 开关关闭
-    req_off = ir_to_gemini(ir, strip_base_persona=False)
-    sys_off = req_off["request"]["systemInstruction"]["parts"][0]["text"]
-    assert sys_off == "使用中文回答"
+    # 验证 systemInstruction 严格等于用户输入，无额外指令注入
+    req = ir_to_gemini(ir)
+    sys_text = req["request"]["systemInstruction"]["parts"][0]["text"]
+    assert sys_text == "使用中文回答"
 
-    # 开关开启：应追加高优先级系统身份覆写指令
-    req_on = ir_to_gemini(ir, strip_base_persona=True)
-    sys_on = req_on["request"]["systemInstruction"]["parts"][0]["text"]
-    assert "使用中文回答" in sys_on
-    assert "System Directive Override" in sys_on
+    # 验证无 system 消息时不产生 systemInstruction 字段
+    ir_no_sys = to_ir("chat", {"model": "gemini-3.8-flash-high", "messages": [{"role": "user", "content": "你好"}]})
+    req_no_sys = ir_to_gemini(ir_no_sys)
+    assert "systemInstruction" not in req_no_sys["request"]
+
+
+def test_full_generation_config_passthrough():
+    """验证用户传入的各项生成控制参数全量透传。"""
+    body = {
+        "model": "gemini-3.8-flash-high",
+        "messages": [{"role": "user", "content": "hi"}],
+        "temperature": 0.4,
+        "top_p": 0.85,
+        "top_k": 40,
+        "max_tokens": 1500,
+        "stop": ["END", "STOP"],
+        "presence_penalty": 0.5,
+        "frequency_penalty": 0.2,
+        "seed": 42,
+        "response_format": {"type": "json_object"},
+        "thinking_budget": 2048,
+    }
+    ir = to_ir("chat", body)
+    req = ir_to_gemini(ir)
+    cfg = req["request"]["generationConfig"]
+
+    assert cfg["temperature"] == 0.4
+    assert cfg["topP"] == 0.85
+    assert cfg["topK"] == 40
+    assert cfg["maxOutputTokens"] == 1500
+    assert cfg["stopSequences"] == ["END", "STOP"]
+    assert cfg["presencePenalty"] == 0.5
+    assert cfg["frequencyPenalty"] == 0.2
+    assert cfg["seed"] == 42
+    assert cfg["responseMimeType"] == "application/json"
+    assert cfg["thinkingConfig"]["thinkingBudget"] == 2048
+
 
 
 

@@ -30,6 +30,26 @@ DEFAULT_MODELS = [
     {"id": "claude-opus-4-6-thinking", "display_name": "Claude Opus 4.6 (Thinking)"},
 ]
 
+DEFAULT_MODEL_ALIASES: dict[str, str] = {
+    "gpt-4o": "gemini-3.8-flash-high",
+    "gpt-4o-mini": "gemini-3.8-flash-medium",
+    "gpt-4": "gemini-3.8-flash-high",
+    "gpt-4-turbo": "gemini-3.8-flash-high",
+    "gpt-3.5-turbo": "gemini-3.8-flash-medium",
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-7-sonnet": "claude-sonnet-4-6",
+    "claude-3-7-sonnet-latest": "claude-sonnet-4-6",
+    "claude-sonnet": "claude-sonnet-4-6",
+    "claude-3-opus": "claude-opus-4-6-thinking",
+    "claude-3-opus-latest": "claude-opus-4-6-thinking",
+    "claude-opus": "claude-opus-4-6-thinking",
+    "o1": "gemini-3.1-pro-high",
+    "o1-preview": "gemini-3.1-pro-high",
+    "o1-mini": "gemini-3.8-flash-high",
+    "o3-mini": "gemini-3.8-flash-high",
+}
+
 
 class ModelInfo(BaseModel):
     id: str
@@ -53,8 +73,10 @@ class ServerConfig(BaseModel):
     project: str = "aicode-consumers"
     upstream_base_url: str = "https://daily-cloudcode-pa.googleapis.com"
     user_agent: str = "antigravity/2.16.0"
-    strip_base_persona: bool = True
+    strip_base_persona: bool = False
     models: list[ModelInfo] = Field(default_factory=lambda: [ModelInfo(**m) for m in DEFAULT_MODELS])
+    model_aliases: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_MODEL_ALIASES))
+
 
     @field_validator("upstream_base_url")
     @classmethod
@@ -77,6 +99,23 @@ class ServerConfig(BaseModel):
         if v < 1 or v > 65535:
             raise ValueError("port 范围 1-65535")
         return v
+
+
+def resolve_model_name(requested_model: str, cfg: ServerConfig) -> str:
+    """根据配置与别名表解析目标模型名称。"""
+    if not requested_model:
+        return cfg.default_model
+    for m in cfg.models:
+        if m.id == requested_model:
+            return requested_model
+    aliases = cfg.model_aliases or DEFAULT_MODEL_ALIASES
+    if requested_model in aliases:
+        return aliases[requested_model]
+    lower_req = requested_model.lower()
+    for alias_k, alias_v in aliases.items():
+        if alias_k.lower() == lower_req:
+            return alias_v
+    return requested_model
 
 
 class GatewayConfig(BaseModel):

@@ -64,7 +64,14 @@ class IRRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     top_p: float | None = None
+    top_k: int | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    seed: int | None = None
+    response_format: dict[str, Any] | str | None = None
+    thinking_budget: int | None = None
     stop: list[str] | str | None = None
+    generation_config: dict[str, Any] | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def ensure_items(self) -> list[IRItem]:
