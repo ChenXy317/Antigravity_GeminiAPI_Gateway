@@ -17,8 +17,8 @@ import httpx
 
 REFRESH_SKEW = timedelta(minutes=5)
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
-_CID = "moc.tnetnocresuelgoog.sppa.pe304g4hjolotv532erc1l12h2nisshmt-1950606001701"
-_SEC = "fADq6z4CXs8BLm1JLd684RWFE85K-XPSCOG"
+_CID = "moc.tnetnocresuelgoog.sppa.pe304g4hjolotv532ercl12h2nisshmt-1950606001701"
+_SEC = "fADq6z4CXs8BLm1JLdL684RWF85K-XPSCOG"
 CLIENT_ID = os.getenv("ANTIGRAVITY_CLIENT_ID") or _CID[::-1]
 CLIENT_SECRET = os.getenv("ANTIGRAVITY_CLIENT_SECRET") or _SEC[::-1]
 

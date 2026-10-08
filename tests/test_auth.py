@@ -45,3 +45,13 @@ def test_parse_expiry_timezone_safe():
     # 验证与 UTC 当前时间对比无异常
     assert isinstance(dt_naive > datetime.now(UTC), bool)
 
+
+def test_oauth_client_credentials():
+    """验证 Antigravity OAuth 客户端凭证格式有效。"""
+    from app.antigravity_auth import CLIENT_ID, CLIENT_SECRET
+    assert CLIENT_ID.endswith(".apps.googleusercontent.com")
+    assert CLIENT_SECRET.startswith("GOCSPX-")
+    assert "cre" in CLIENT_ID
+    assert len(CLIENT_ID) == 73
+    assert len(CLIENT_SECRET) == 35
+
