@@ -71,6 +71,7 @@ def test_manage_status_localhost():
     assert data["ok"] is True
     assert "antigravity" in data
     assert "models" in data
+    assert "model_aliases" in data
     assert data["admin_auth"] is False
 
 

@@ -377,6 +377,7 @@ async def api_status(request: Request):
         "host": cfg.server.host,
         "port": cfg.server.port,
         "models": [m.model_dump() for m in cfg.server.models],
+        "model_aliases": cfg.server.model_aliases,
         "default_model": cfg.server.default_model,
         "auth": bool((cfg.server.local_api_key or "").strip()),
         "admin_auth": bool((cfg.server.admin_api_key or "").strip())

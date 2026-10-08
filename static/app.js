@@ -19,6 +19,8 @@ function app() {
       strip_base_persona: true,
     },
     models: [],
+    modelAliases: {},
+    modelFilter: "",
     antigravity: {
       logged_in: false,
       email: "",
@@ -42,6 +44,19 @@ function app() {
     testing: false,
     refreshing: false,
     syncingModels: false,
+
+    get filteredModels() {
+      if (!this.modelFilter.trim()) return this.models;
+      const q = this.modelFilter.trim().toLowerCase();
+      return this.models.filter(m => (m.id && m.id.toLowerCase().includes(q)) || (m.display_name && m.display_name.toLowerCase().includes(q)));
+    },
+
+    get filteredAliases() {
+      const entries = Object.entries(this.modelAliases || {});
+      if (!this.modelFilter.trim()) return entries;
+      const q = this.modelFilter.trim().toLowerCase();
+      return entries.filter(([k, v]) => k.toLowerCase().includes(q) || v.toLowerCase().includes(q));
+    },
 
     get gatewayUrl() {
       const port = this.serverCfg.port || 8789;
@@ -111,6 +126,7 @@ function app() {
         this.serverCfg.port = data.port;
         this.serverCfg.default_model = data.default_model;
         this.models = data.models || [];
+        this.modelAliases = data.model_aliases || {};
         if (!this.playModel && this.serverCfg.default_model) {
           this.playModel = this.serverCfg.default_model;
         }
@@ -348,6 +364,23 @@ function app() {
     copy(text) {
       navigator.clipboard.writeText(text);
       this.toast("已复制到剪贴板", true);
+    },
+
+    copyModel(id) {
+      this.copy(id);
+      this.toast("已复制模型 ID: " + id, true);
+    },
+
+    selectPlayModel(id) {
+      this.playModel = id;
+      this.tab = "play";
+      this.toast("已选择模型: " + id, true);
+    },
+
+    async setDefaultModel(id) {
+      this.serverCfg.default_model = id;
+      await this.saveConfig();
+      this.toast("默认模型已切换为: " + id, true);
     },
   };
 }
