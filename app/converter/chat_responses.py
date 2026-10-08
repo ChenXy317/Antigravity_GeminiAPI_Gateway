@@ -49,6 +49,63 @@ def _ir_content_to_chat(content: str | list[IRContent] | None) -> Any:
     return arr
 
 
+def parse_thinking_budget(body: dict[str, Any]) -> int | None:
+    """从各种客户端请求体中解析思考预算（兼容 enable_thinking、chat_template_kwargs、thinking、reasoning_effort 等）。"""
+    extra = body.get("extra_body") if isinstance(body.get("extra_body"), dict) else {}
+
+    # 1. 显式布尔禁用标志（常见于 Nehchat Agent、vLLM、Ollama 等客户端）
+    if body.get("enable_thinking") is False or extra.get("enable_thinking") is False:
+        return 0
+
+    # 2. chat_template_kwargs 字典中的禁用标志
+    ctk = body.get("chat_template_kwargs") if isinstance(body.get("chat_template_kwargs"), dict) else {}
+    if ctk.get("enable_thinking") is False:
+        return 0
+    extra_ctk = extra.get("chat_template_kwargs") if isinstance(extra.get("chat_template_kwargs"), dict) else {}
+    if extra_ctk.get("enable_thinking") is False:
+        return 0
+
+    # 3. thinking 字段（布尔、字符串或字典）
+    thinking_val = body.get("thinking") if "thinking" in body else extra.get("thinking")
+    if thinking_val is False:
+        return 0
+    if isinstance(thinking_val, str) and thinking_val.lower() in ("off", "none", "disabled", "false", "0"):
+        return 0
+    if isinstance(thinking_val, dict):
+        if thinking_val.get("enabled") is False or thinking_val.get("type") in ("disabled", "off", "none"):
+            return 0
+        tb = thinking_val.get("budget_tokens") if thinking_val.get("budget_tokens") is not None else thinking_val.get("thinking_budget")
+        if tb is not None:
+            try:
+                return int(tb)
+            except Exception:
+                pass
+
+    # 4. thinking_budget 明确字段
+    tb_val = body.get("thinking_budget") if "thinking_budget" in body else extra.get("thinking_budget")
+    if tb_val is not None:
+        try:
+            return int(tb_val)
+        except Exception:
+            pass
+
+    # 5. reasoning_effort / reasoning 字段
+    re_val = body.get("reasoning_effort") if "reasoning_effort" in body else extra.get("reasoning_effort")
+    if re_val is not None:
+        effort = str(re_val).lower()
+        effort_map = {"low": 1024, "medium": 2048, "high": 4096, "none": 0, "0": 0, "false": 0, "off": 0}
+        if effort in effort_map:
+            return effort_map[effort]
+
+    reasoning_val = body.get("reasoning") if "reasoning" in body else extra.get("reasoning")
+    if reasoning_val is False:
+        return 0
+    if isinstance(reasoning_val, dict) and (reasoning_val.get("enabled") is False or str(reasoning_val.get("effort")).lower() in ("none", "0")):
+        return 0
+
+    return None
+
+
 def chat_to_ir(body: dict[str, Any]) -> IRRequest:
     model = body.get("model", "")
     messages: list[IRMessage] = []
@@ -105,26 +162,8 @@ def chat_to_ir(body: dict[str, Any]) -> IRRequest:
                 IRTool(name=fn.get("name") or "", description=fn.get("description"), parameters=fn.get("parameters"))
             )
 
-    # 思考预算解析
-    thinking_budget = None
-    if "thinking_budget" in body and body["thinking_budget"] is not None:
-        try:
-            thinking_budget = int(body["thinking_budget"])
-        except Exception:
-            pass
-    elif isinstance(body.get("thinking"), dict):
-        tb = body["thinking"].get("budget_tokens") or body["thinking"].get("thinking_budget")
-        if tb is not None:
-            try:
-                thinking_budget = int(tb)
-            except Exception:
-                pass
-    elif "reasoning_effort" in body:
-        effort = str(body["reasoning_effort"]).lower()
-        effort_map = {"low": 1024, "medium": 2048, "high": 4096, "none": 0, "0": 0}
-        thinking_budget = effort_map.get(effort)
-
     raw_gc = body.get("generationConfig") or body.get("generation_config")
+    thinking_budget = parse_thinking_budget(body)
 
     return IRRequest(
         model=model,
@@ -515,6 +554,7 @@ def responses_to_ir(body: dict[str, Any]) -> IRRequest:
         temperature=body.get("temperature"),
         max_tokens=max_tokens,
         top_p=body.get("top_p"),
+        thinking_budget=parse_thinking_budget(body),
         extra={
             k: v
             for k, v in body.items()

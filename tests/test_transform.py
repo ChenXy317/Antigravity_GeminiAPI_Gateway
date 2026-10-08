@@ -298,6 +298,46 @@ def test_upstream_error_parsing():
     assert "Penalty is not enabled for this model" in str(err)
 
 
+def test_thinking_disabled_variations():
+    """验证各种客户端禁用思考参数的解析与透传。"""
+    # 场景 1：enable_thinking: False (Nehchat Agent 默认)
+    req1 = ir_to_gemini(to_ir("chat", {
+        "messages": [{"role": "user", "content": "hi"}],
+        "enable_thinking": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }))
+    assert req1["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+
+    # 场景 2：extra_body 中的 enable_thinking
+    req2 = ir_to_gemini(to_ir("chat", {
+        "messages": [{"role": "user", "content": "hi"}],
+        "extra_body": {"enable_thinking": False},
+    }))
+    assert req2["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+
+    # 场景 3：thinking: "off" / "disabled" / False
+    req3 = ir_to_gemini(to_ir("chat", {
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": False,
+    }))
+    assert req3["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+
+    # 场景 4：reasoning_effort: "none"
+    req4 = ir_to_gemini(to_ir("chat", {
+        "messages": [{"role": "user", "content": "hi"}],
+        "reasoning_effort": "none",
+    }))
+    assert req4["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+
+    # 场景 5：gemini-pro-agent 专属模型安全忽略 budget 0
+    req5 = ir_to_gemini(to_ir("chat", {
+        "model": "gemini-pro-agent",
+        "messages": [{"role": "user", "content": "hi"}],
+        "enable_thinking": False,
+    }))
+    assert "thinkingConfig" not in req5["request"].get("generationConfig", {})
+
+
 
 
 

@@ -191,7 +191,10 @@ def ir_to_gemini(
                     gen_cfg["responseSchema"] = schema
 
     if ir.thinking_budget is not None:
-        gen_cfg["thinkingConfig"] = {"thinkingBudget": ir.thinking_budget}
+        if ir.thinking_budget == 0 and ir.model in ("gemini-pro-agent",):
+            pass
+        else:
+            gen_cfg["thinkingConfig"] = {"thinkingBudget": ir.thinking_budget}
 
     if ir.generation_config and isinstance(ir.generation_config, dict):
         filtered_gc = {

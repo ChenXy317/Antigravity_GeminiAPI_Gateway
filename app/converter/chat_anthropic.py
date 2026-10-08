@@ -156,19 +156,9 @@ def anthropic_to_ir(body: dict[str, Any]) -> IRRequest:
                 )
             )
 
-    thinking_budget = None
-    if isinstance(body.get("thinking"), dict):
-        th_type = body["thinking"].get("type")
-        if th_type == "enabled":
-            tb = body["thinking"].get("budget_tokens")
-            if tb is not None:
-                try:
-                    thinking_budget = int(tb)
-                except Exception:
-                    pass
-        elif th_type == "disabled":
-            thinking_budget = 0
+    from .chat_responses import parse_thinking_budget
 
+    thinking_budget = parse_thinking_budget(body)
     raw_gc = body.get("generationConfig") or body.get("generation_config")
 
     return IRRequest(
