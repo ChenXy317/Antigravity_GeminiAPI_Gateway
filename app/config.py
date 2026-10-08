@@ -22,18 +22,19 @@ class ConfigError(RuntimeError):
 DEFAULT_MODELS = [
     {"id": "gemini-3.8-flash-high", "display_name": "Gemini 3.8 Flash (High)"},
     {"id": "gemini-3.8-flash-medium", "display_name": "Gemini 3.8 Flash (Medium)"},
-    {"id": "gemini-3.1-pro-high", "display_name": "Gemini 3.1 Pro (High)"},
+    {"id": "gemini-3.7-flash-medium", "display_name": "Gemini 3.7 Flash (Medium)"},
+    {"id": "gemini-3.6-flash-medium", "display_name": "Gemini 3.6 Flash (Medium)"},
+    {"id": "gemini-3.1-pro-low", "display_name": "Gemini 3.1 Pro (Low)"},
     {"id": "gemini-pro-agent", "display_name": "Gemini Pro Agent"},
-    {"id": "gemini-3.7-flash-high", "display_name": "Gemini 3.7 Flash (High)"},
-    {"id": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro (上游暂无算力)"},
     {"id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6 (Thinking)"},
     {"id": "claude-opus-4-6-thinking", "display_name": "Claude Opus 4.6 (Thinking)"},
+    {"id": "gpt-oss-120b-medium", "display_name": "GPT-OSS 120B (Medium)"},
 ]
 
 DEFAULT_FALLBACK_MODELS: list[str] = [
     "gemini-3.8-flash-medium",
     "claude-sonnet-4-6",
-    "gemini-3.7-flash-high",
+    "gemini-3.1-pro-low",
 ]
 
 DEFAULT_MODEL_ALIASES: dict[str, str] = {
@@ -53,10 +54,16 @@ DEFAULT_MODEL_ALIASES: dict[str, str] = {
     "o1-preview": "gemini-pro-agent",
     "o1-mini": "gemini-3.8-flash-high",
     "o3-mini": "gemini-3.8-flash-high",
+    "gemini-2.5-pro": "gemini-3.1-pro-low",
+    "gemini-2.5-flash": "gemini-3.8-flash-high",
+    "gemini-pro": "gemini-3.1-pro-low",
+    "gpt-oss": "gpt-oss-120b-medium",
 }
 
 UPSTREAM_MODEL_REWRITES: dict[str, str] = {
     "gemini-3.1-pro-high": "gemini-pro-agent",
+    "gemini-2.5-pro": "gemini-3.1-pro-low",
+    "gemini-2.5-flash": "gemini-3.8-flash-high",
 }
 
 

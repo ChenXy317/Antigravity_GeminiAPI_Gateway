@@ -41,6 +41,7 @@ def test_model_alias_resolution():
     assert resolve_model_name("claude-3-5-sonnet", cfg) == "claude-sonnet-4-6"
     assert resolve_model_name("o1", cfg) == "gemini-pro-agent"
     assert resolve_model_name("gemini-3.1-pro-high", cfg) == "gemini-pro-agent"
+    assert resolve_model_name("gemini-2.5-pro", cfg) == "gemini-3.1-pro-low"
 
 
 def test_legacy_functions_compatibility():
@@ -146,8 +147,8 @@ def test_fallback_non_stream(monkeypatch):
     async def fake_post_non_stream(client, base_url, payload, token, timeout=120.0, user_agent=""):
         req_model = payload.get("model")
         call_models.append(req_model)
-        if req_model == "gemini-2.5-pro":
-            raise UpstreamHTTPError(503, json.dumps({"error": {"message": "No capacity available for model gemini-2.5-pro on the server"}}).encode())
+        if req_model == "gemini-3.7-flash-medium":
+            raise UpstreamHTTPError(503, json.dumps({"error": {"message": "No capacity available for model gemini-3.7-flash-medium on the server"}}).encode())
         return 200, {
             "candidates": [{
                 "content": {"role": "model", "parts": [{"text": "Hello from fallback"}]},
@@ -162,7 +163,7 @@ def test_fallback_non_stream(monkeypatch):
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {current_key}"},
         json={
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.7-flash-medium",
             "messages": [{"role": "user", "content": "hi"}],
             "stream": False,
         },
@@ -171,9 +172,9 @@ def test_fallback_non_stream(monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert "Hello from fallback" in data["choices"][0]["message"]["content"]
-    assert resp.headers.get("x-gateway-fallback-from") == "gemini-2.5-pro"
+    assert resp.headers.get("x-gateway-fallback-from") == "gemini-3.7-flash-medium"
     assert resp.headers.get("x-gateway-model") == "gemini-3.8-flash-medium"
-    assert call_models[0] == "gemini-2.5-pro"
+    assert call_models[0] == "gemini-3.7-flash-medium"
     assert call_models[1] == "gemini-3.8-flash-medium"
 
 
