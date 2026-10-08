@@ -16,13 +16,19 @@
     "project": "aicode-consumers",
     "upstream_base_url": "https://daily-cloudcode-pa.googleapis.com",
     "strip_base_persona": false,
+    "enable_fallback": true,
+    "fallback_models": [
+      "gemini-3.8-flash-medium",
+      "claude-sonnet-4-6",
+      "gemini-3.7-flash-high"
+    ],
     "models": [
       { "id": "gemini-3.8-flash-high", "display_name": "Gemini 3.8 Flash (High)" },
       { "id": "gemini-3.8-flash-medium", "display_name": "Gemini 3.8 Flash (Medium)" },
       { "id": "gemini-3.1-pro-high", "display_name": "Gemini 3.1 Pro (High)" },
       { "id": "gemini-pro-agent", "display_name": "Gemini Pro Agent" },
       { "id": "gemini-3.7-flash-high", "display_name": "Gemini 3.7 Flash (High)" },
-      { "id": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro" },
+      { "id": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro (上游暂无算力)" },
       { "id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6 (Thinking)" },
       { "id": "claude-opus-4-6-thinking", "display_name": "Claude Opus 4.6 (Thinking)" }
     ]

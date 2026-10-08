@@ -114,5 +114,155 @@ def test_parse_quota_groups():
     assert result["groups"][1]["weekly"]["remaining_percent"] == 99.3
 
 
+def test_upstream_error_detection():
+    """验证上游配额耗尽与算力枯竭错误识别。"""
+    from app.upstream import UpstreamHTTPError
+    import json
+
+    e429 = UpstreamHTTPError(429, json.dumps({"error": {"message": "You have exhausted your capacity on this model. Your quota will reset after 4h59m57s."}}).encode())
+    assert e429.is_quota_exhausted is True
+    assert e429.is_capacity_exhausted is False
+
+    e503 = UpstreamHTTPError(503, json.dumps({"error": {"message": "No capacity available for model gemini-2.5-pro on the server"}}).encode())
+    assert e503.is_quota_exhausted is False
+    assert e503.is_capacity_exhausted is True
+
+    e400 = UpstreamHTTPError(400, json.dumps({"error": {"message": "Invalid request"}}).encode())
+    assert e400.is_quota_exhausted is False
+    assert e400.is_capacity_exhausted is False
+
+
+def test_fallback_non_stream(monkeypatch):
+    """验证非流式请求遇到上游无算力时自动故障转移至备选模型。"""
+    from unittest.mock import AsyncMock
+    from app.upstream import UpstreamHTTPError
+    import app.server as server_mod
+    from app.config import config_manager
+    import json
+
+    current_key = config_manager.config.server.local_api_key or "sk-local"
+    call_models = []
+
+    async def fake_post_non_stream(client, base_url, payload, token, timeout=120.0, user_agent=""):
+        req_model = payload.get("model")
+        call_models.append(req_model)
+        if req_model == "gemini-2.5-pro":
+            raise UpstreamHTTPError(503, json.dumps({"error": {"message": "No capacity available for model gemini-2.5-pro on the server"}}).encode())
+        return 200, {
+            "candidates": [{
+                "content": {"role": "model", "parts": [{"text": "Hello from fallback"}]},
+                "finishReason": "STOP",
+            }]
+        }
+
+    monkeypatch.setattr(server_mod, "post_non_stream", fake_post_non_stream)
+    monkeypatch.setattr("app.server.antigravity_auth.get_token", AsyncMock(return_value="mock-token"))
+
+    resp = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {current_key}"},
+        json={
+            "model": "gemini-2.5-pro",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "Hello from fallback" in data["choices"][0]["message"]["content"]
+    assert resp.headers.get("x-gateway-fallback-from") == "gemini-2.5-pro"
+    assert resp.headers.get("x-gateway-model") == "gemini-3.8-flash-medium"
+    assert call_models[0] == "gemini-2.5-pro"
+    assert call_models[1] == "gemini-3.8-flash-medium"
+
+
+def test_client_error_no_fallback(monkeypatch):
+    """验证客户端参数错误（400）不触发无意义的备用模型降级。"""
+    from unittest.mock import AsyncMock
+    from app.upstream import UpstreamHTTPError
+    import app.server as server_mod
+    from app.config import config_manager
+    import json
+
+    current_key = config_manager.config.server.local_api_key or "sk-local"
+    calls = 0
+
+    async def fake_post_non_stream(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise UpstreamHTTPError(400, json.dumps({"error": {"message": "Invalid argument format"}}).encode())
+
+    monkeypatch.setattr(server_mod, "post_non_stream", fake_post_non_stream)
+    monkeypatch.setattr("app.server.antigravity_auth.get_token", AsyncMock(return_value="mock-token"))
+
+    resp = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {current_key}"},
+        json={
+            "model": "gemini-3.8-flash-high",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        },
+    )
+
+    assert resp.status_code == 400
+    assert calls == 1
+
+
+def test_fallback_stream(monkeypatch):
+    """验证流式请求遇到 429 配额用尽时自动切换备选模型建立流。"""
+    from unittest.mock import AsyncMock
+    from app.upstream import UpstreamHTTPError
+    import app.server as server_mod
+    from app.config import config_manager
+    import json
+    import httpx
+
+    current_key = config_manager.config.server.local_api_key or "sk-local"
+    call_models = []
+
+    async def fake_open_stream(client, base_url, payload, token, user_agent="", connect_timeout=30.0):
+        req_model = payload.get("model")
+        call_models.append(req_model)
+        if req_model == "gemini-3.8-flash-high":
+            raise UpstreamHTTPError(429, json.dumps({"error": {"message": "You have exhausted your capacity on this model. Your quota will reset after 4h59m57s."}}).encode())
+        
+        # 成功响应模拟 SSE 流
+        sse_body = (
+            b'data: {"response": {"candidates": [{"content": {"role": "model", "parts": [{"text": "stream chunk"}]}}]}}\n\n'
+        )
+
+        class MockByteStream(httpx.AsyncByteStream):
+            def __init__(self, data: bytes):
+                self._data = data
+            async def __aiter__(self):
+                yield self._data
+
+        return httpx.Response(200, stream=MockByteStream(sse_body))
+
+    monkeypatch.setattr(server_mod, "open_upstream_stream", fake_open_stream)
+    monkeypatch.setattr("app.server.antigravity_auth.get_token", AsyncMock(return_value="mock-token"))
+
+    resp = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {current_key}"},
+        json={
+            "model": "gemini-3.8-flash-high",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    assert resp.headers.get("x-gateway-fallback-from") == "gemini-3.8-flash-high"
+    assert resp.headers.get("x-gateway-model") == "gemini-3.8-flash-medium"
+    assert call_models[0] == "gemini-3.8-flash-high"
+    assert call_models[1] == "gemini-3.8-flash-medium"
+    assert "stream chunk" in resp.text
+
+
+
 
 

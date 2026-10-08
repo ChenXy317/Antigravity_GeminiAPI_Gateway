@@ -382,7 +382,8 @@ tailwind.config = {
                   </td>
                   <td class="p-3">
                     <span x-show="m.id === serverCfg.default_model" class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">默认模型</span>
-                    <span x-show="m.id !== serverCfg.default_model" class="text-zinc-400 text-xs">可用</span>
+                    <span x-show="m.id !== serverCfg.default_model && (m.id.includes('2.5-pro') || (m.display_name && m.display_name.includes('暂无算力')))" class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">上游暂无算力</span>
+                    <span x-show="m.id !== serverCfg.default_model && !m.id.includes('2.5-pro') && !(m.display_name && m.display_name.includes('暂无算力'))" class="text-zinc-400 text-xs">可用</span>
                   </td>
                   <td class="p-3 text-right space-x-1.5">
                     <button @click="copyModel(m.id)" class="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs text-zinc-700 dark:text-zinc-200 transition">复制 ID</button>
@@ -476,8 +477,17 @@ tailwind.config = {
                     <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium" :class="r.status < 400 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'" x-text="r.status"></span>
                   </td>
                   <td class="p-3 text-zinc-600 dark:text-zinc-400" x-text="r.latency_ms+'ms'"></td>
-                  <td class="p-3 text-zinc-500" x-text="(r.prompt_tokens || 0) + ' / ' + (r.completion_tokens || 0)"></td>
-                  <td class="p-3 text-red-500 truncate max-w-xs" :title="r.error" x-text="r.error || '—'"></td>
+                  <td class="p-3 truncate max-w-xs" :title="r.error">
+                    <template x-if="r.error && r.error.startsWith('[已降级]')">
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400" x-text="r.error"></span>
+                    </template>
+                    <template x-if="r.error && !r.error.startsWith('[已降级]')">
+                      <span class="text-red-500" x-text="r.error"></span>
+                    </template>
+                    <template x-if="!r.error">
+                      <span class="text-zinc-400">—</span>
+                    </template>
+                  </td>
                 </tr>
               </template>
             </tbody>
@@ -522,6 +532,21 @@ tailwind.config = {
             <input type="checkbox" x-model="serverCfg.strip_base_persona" class="sr-only peer">
             <div class="w-9 h-5 bg-zinc-200 dark:bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
           </label>
+        </div>
+        <div class="sm:col-span-2 pt-3 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800/60">
+          <div>
+            <div class="text-xs font-medium text-zinc-800 dark:text-zinc-200">自动故障转移与降级 (Model Fallback)</div>
+            <div class="text-[11px] text-zinc-500">当主用模型遭遇 429 配额用尽或 503 上游算力不足时，自动无感切换至备用候选模型，保障对话不中断</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" x-model="serverCfg.enable_fallback" class="sr-only peer">
+            <div class="w-9 h-5 bg-zinc-200 dark:bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="sm:col-span-2" x-show="serverCfg.enable_fallback">
+          <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400 block mb-1">备用降级候选模型链 (英文逗号分隔)</label>
+          <input x-model="serverCfg.fallback_models_str" placeholder="例如: gemini-3.8-flash-medium, claude-sonnet-4-6, gemini-3.7-flash-high" class="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-accent" />
+          <div class="text-[11px] text-zinc-500 mt-1">按顺序依次尝试，直至请求成功。建议配置不同模型组（如 Claude 组）作为兜底</div>
         </div>
       </div>
       <div class="pt-2 flex justify-end">

@@ -38,6 +38,8 @@ from .upstream import (
     StreamTimeoutError,
     UpstreamHTTPError,
     fetch_upstream_models,
+    iter_stream_response,
+    open_upstream_stream,
     post_non_stream,
     stream_upstream,
 )
@@ -130,6 +132,19 @@ def _is_retryable(status: int) -> bool:
     return status in RETRYABLE or status >= 500
 
 
+def _should_fallback(e: Exception) -> bool:
+    """判断当前上游异常是否应触发备选模型故障转移。"""
+    if isinstance(e, UpstreamHTTPError):
+        if e.is_quota_exhausted or e.is_capacity_exhausted:
+            return True
+        if e.status_code in {429, 500, 502, 503, 504, 529}:
+            return True
+        return False
+    if isinstance(e, (httpx.TimeoutException, StreamTimeoutError)):
+        return True
+    return False
+
+
 # ---------- 代理 API ----------
 
 
@@ -215,106 +230,140 @@ async def _handle_proxy_request(request: Request, inbound: str):
     except Exception as e:
         raise HTTPException(400, f"协议解析失败: {e}")
 
-    ir.model = model_req
+    # 确定主用及候选备用模型队列
+    candidate_models: list[str] = [model_req]
+    if cfg.enable_fallback:
+        for fb_name in (cfg.fallback_models or []):
+            fb_res = resolve_model_name(fb_name, cfg)
+            if fb_res and fb_res not in candidate_models:
+                candidate_models.append(fb_res)
 
-    payload = ir_to_gemini(ir, project=cfg.project, strip_base_persona=cfg.strip_base_persona)
     t0 = time.time()
     attempts = 0
     last_err: Exception | None = None
-
     token = await antigravity_auth.get_token()
 
-    for attempt in range(cfg.retry_count + 1):
-        attempts += 1
-        try:
-            if stream_req:
-                upstream_gen = stream_upstream(
+    for model_idx, current_model in enumerate(candidate_models):
+        ir.model = current_model
+        payload = ir_to_gemini(ir, project=cfg.project, strip_base_persona=cfg.strip_base_persona)
+
+        for attempt in range(cfg.retry_count + 1):
+            attempts += 1
+            try:
+                if stream_req:
+                    upstream_resp = await open_upstream_stream(
+                        client=client,
+                        base_url=cfg.upstream_base_url,
+                        payload=payload,
+                        token=token,
+                        user_agent=cfg.user_agent,
+                        connect_timeout=cfg.connect_timeout_s,
+                    )
+                    upstream_gen = iter_stream_response(
+                        upstream_resp,
+                        first_token_timeout=cfg.first_token_timeout_s,
+                        read_idle_timeout=cfg.read_idle_timeout_s,
+                    )
+                    usage_sink: dict[str, int] = {}
+                    converted_gen = convert_stream(upstream_gen, inbound, model=current_model, usage_sink=usage_sink)
+
+                    async def logging_generator():
+                        nonlocal attempts, t0, current_model, model_req
+                        status_code = 200
+                        err_msg = None
+                        if current_model != model_req:
+                            err_msg = f"[已降级] 原模型 {model_req} 容量受限，降级至 {current_model}"
+                        try:
+                            async for chunk in converted_gen:
+                                yield chunk
+                        except asyncio.CancelledError:
+                            status_code = 499
+                            err_msg = "client disconnected"
+                            raise
+                        except Exception as ex:
+                            status_code = 502
+                            err_msg = str(ex)
+                            yield _sse(error_payload(502, f"流传输中断: {ex}", inbound))
+                        finally:
+                            lat = int((time.time() - t0) * 1000)
+                            access_log.add(
+                                inbound=inbound,
+                                model=current_model,
+                                provider_id="antigravity",
+                                stream=True,
+                                status=status_code,
+                                latency_ms=lat,
+                                error=err_msg,
+                                attempts=attempts,
+                                prompt_tokens=usage_sink.get("prompt_tokens"),
+                                completion_tokens=usage_sink.get("completion_tokens"),
+                            )
+
+                    headers = {"X-Gateway-Model": current_model}
+                    if current_model != model_req:
+                        headers["X-Gateway-Fallback-From"] = model_req
+                    return StreamingResponse(logging_generator(), media_type="text/event-stream", headers=headers)
+
+                status_code, resp_json = await post_non_stream(
                     client=client,
                     base_url=cfg.upstream_base_url,
                     payload=payload,
                     token=token,
+                    timeout=cfg.timeout_s,
                     user_agent=cfg.user_agent,
-                    first_token_timeout=cfg.first_token_timeout_s,
-                    read_idle_timeout=cfg.read_idle_timeout_s,
                 )
-                usage_sink: dict[str, int] = {}
-                converted_gen = convert_stream(upstream_gen, inbound, model=ir.model, usage_sink=usage_sink)
 
-                async def logging_generator():
-                    nonlocal attempts, t0
-                    status_code = 200
-                    err_msg = None
-                    try:
-                        async for chunk in converted_gen:
-                            yield chunk
-                    except asyncio.CancelledError:
-                        status_code = 499
-                        err_msg = "client disconnected"
-                        raise
-                    except Exception as ex:
-                        status_code = 502
-                        err_msg = str(ex)
-                        yield _sse(error_payload(502, f"流传输中断: {ex}", inbound))
-                    finally:
-                        lat = int((time.time() - t0) * 1000)
-                        access_log.add(
-                            inbound=inbound,
-                            model=ir.model,
-                            provider_id="antigravity",
-                            stream=True,
-                            status=status_code,
-                            latency_ms=lat,
-                            error=err_msg,
-                            attempts=attempts,
-                            prompt_tokens=usage_sink.get("prompt_tokens"),
-                            completion_tokens=usage_sink.get("completion_tokens"),
-                        )
+                ir_resp = gemini_to_ir_response(resp_json, fallback_model=current_model)
+                out = upstream_resp_to_inbound(ir_resp, inbound)
+                lat = int((time.time() - t0) * 1000)
+                u = ir_resp.usage or {}
+                log_err = (
+                    f"[已降级] 原模型 {model_req} 容量受限，降级至 {current_model}"
+                    if current_model != model_req
+                    else None
+                )
+                access_log.add(
+                    inbound=inbound,
+                    model=current_model,
+                    provider_id="antigravity",
+                    stream=False,
+                    status=200,
+                    latency_ms=lat,
+                    error=log_err,
+                    attempts=attempts,
+                    prompt_tokens=u.get("prompt_tokens"),
+                    completion_tokens=u.get("completion_tokens"),
+                )
+                resp_headers = {"X-Gateway-Model": current_model}
+                if current_model != model_req:
+                    resp_headers["X-Gateway-Fallback-From"] = model_req
+                return JSONResponse(out, headers=resp_headers)
 
-                return StreamingResponse(logging_generator(), media_type="text/event-stream")
+            except UpstreamHTTPError as e:
+                last_err = e
+                if e.status_code == 401:
+                    token = await antigravity_auth.get_token(force_refresh=True)
+                    continue
+                # 配额或容量耗尽，当前模型短时间内无法提供服务，立即跳过该模型的后续重试
+                if e.is_quota_exhausted or e.is_capacity_exhausted:
+                    break
+                # 其他网络层偶发错误且未达到最大重试次数时，执行重试
+                if _is_retryable(e.status_code) and attempt < cfg.retry_count:
+                    await asyncio.sleep(cfg.retry_backoff_ms / 1000.0 * (2**attempt))
+                    continue
+                break
+            except (httpx.TimeoutException, StreamTimeoutError) as e:
+                last_err = e
+                if attempt < cfg.retry_count:
+                    await asyncio.sleep(cfg.retry_backoff_ms / 1000.0 * (2**attempt))
+                    continue
+                break
+            except Exception as e:
+                last_err = e
+                break
 
-            status_code, resp_json = await post_non_stream(
-                client=client,
-                base_url=cfg.upstream_base_url,
-                payload=payload,
-                token=token,
-                timeout=cfg.timeout_s,
-                user_agent=cfg.user_agent,
-            )
-
-            ir_resp = gemini_to_ir_response(resp_json, fallback_model=ir.model)
-            out = upstream_resp_to_inbound(ir_resp, inbound)
-            lat = int((time.time() - t0) * 1000)
-            u = ir_resp.usage or {}
-            access_log.add(
-                inbound=inbound,
-                model=ir.model,
-                provider_id="antigravity",
-                stream=False,
-                status=200,
-                latency_ms=lat,
-                attempts=attempts,
-                prompt_tokens=u.get("prompt_tokens"),
-                completion_tokens=u.get("completion_tokens"),
-            )
-            return JSONResponse(out)
-
-        except UpstreamHTTPError as e:
-            last_err = e
-            if e.status_code == 401:
-                token = await antigravity_auth.get_token(force_refresh=True)
-                continue
-            if _is_retryable(e.status_code) and attempt < cfg.retry_count:
-                await asyncio.sleep(cfg.retry_backoff_ms / 1000.0 * (2**attempt))
-                continue
-            break
-        except (httpx.TimeoutException, StreamTimeoutError) as e:
-            last_err = e
-            if attempt < cfg.retry_count:
-                await asyncio.sleep(cfg.retry_backoff_ms / 1000.0 * (2**attempt))
-                continue
-            break
-        except Exception as e:
-            last_err = e
+        # 若错误不属于容量/网络等可通过切换模型解决的问题（如 400 格式错误），直接中断遍历
+        if last_err and not _should_fallback(last_err):
             break
 
     lat = int((time.time() - t0) * 1000)
@@ -322,7 +371,7 @@ async def _handle_proxy_request(request: Request, inbound: str):
     status_code = getattr(last_err, "status_code", 502) if isinstance(last_err, UpstreamHTTPError) else 502
     access_log.add(
         inbound=inbound,
-        model=ir.model,
+        model=model_req,
         provider_id="antigravity",
         stream=stream_req,
         status=status_code,

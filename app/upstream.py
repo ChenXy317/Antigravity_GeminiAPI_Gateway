@@ -12,18 +12,37 @@ import httpx
 class UpstreamHTTPError(Exception):
     def __init__(self, status_code: int, body: bytes):
         msg = f"上游 HTTP 错误: {status_code}"
+        self.error_detail: str = ""
         try:
             data = json.loads(body.decode("utf-8", errors="ignore"))
             err = data.get("error") if isinstance(data, dict) else None
             if isinstance(err, dict) and err.get("message"):
+                self.error_detail = str(err["message"])
                 msg += f" - {err['message']}"
             elif isinstance(data, dict) and data.get("message"):
+                self.error_detail = str(data["message"])
                 msg += f" - {data['message']}"
         except Exception:
             pass
         super().__init__(msg)
         self.status_code = status_code
         self.body = body
+
+    @property
+    def is_quota_exhausted(self) -> bool:
+        """是否属于模型配额耗尽（429 且提示配额用尽）。"""
+        if self.status_code != 429:
+            return False
+        detail = self.error_detail.lower()
+        return "exhausted" in detail or "quota will reset" in detail or "quota" in detail
+
+    @property
+    def is_capacity_exhausted(self) -> bool:
+        """是否属于模型容量耗尽/无算力（503 且提示无容量可用）。"""
+        if self.status_code != 503:
+            return False
+        detail = self.error_detail.lower()
+        return "no capacity" in detail or "capacity_exhausted" in detail
 
 
 class StreamTimeoutError(Exception):
@@ -57,21 +76,20 @@ async def post_non_stream(
     return resp.status_code, resp.json()
 
 
-async def stream_upstream(
+async def open_upstream_stream(
     client: httpx.AsyncClient,
     base_url: str,
     payload: dict[str, Any],
     token: str,
     user_agent: str = "antigravity/2.16.0",
-    first_token_timeout: float = 90.0,
-    read_idle_timeout: float = 120.0,
-) -> AsyncIterator[bytes]:
-    """向 Antigravity 发送流式推理请求并产生 SSE 字节流。"""
+    connect_timeout: float = 30.0,
+) -> httpx.Response:
+    """与上游建立流式连接并校验 HTTP 状态。"""
     url = base_url.rstrip("/") + "/v1internal:streamGenerateContent?alt=sse"
     headers = build_headers(token, user_agent)
     headers["Accept"] = "text/event-stream"
 
-    req = client.build_request("POST", url, json=payload, headers=headers)
+    req = client.build_request("POST", url, json=payload, headers=headers, timeout=connect_timeout)
     resp = await client.send(req, stream=True)
 
     if resp.status_code != 200:
@@ -79,6 +97,15 @@ async def stream_upstream(
         await resp.aclose()
         raise UpstreamHTTPError(resp.status_code, body)
 
+    return resp
+
+
+async def iter_stream_response(
+    resp: httpx.Response,
+    first_token_timeout: float = 90.0,
+    read_idle_timeout: float = 120.0,
+) -> AsyncIterator[bytes]:
+    """读取已建立连接的上游 SSE 响应流。"""
     first = True
     aiter = resp.aiter_raw()
     try:
@@ -96,6 +123,21 @@ async def stream_upstream(
                 yield chunk
     finally:
         await resp.aclose()
+
+
+async def stream_upstream(
+    client: httpx.AsyncClient,
+    base_url: str,
+    payload: dict[str, Any],
+    token: str,
+    user_agent: str = "antigravity/2.16.0",
+    first_token_timeout: float = 90.0,
+    read_idle_timeout: float = 120.0,
+) -> AsyncIterator[bytes]:
+    """向 Antigravity 发送流式推理请求并产生 SSE 字节流。"""
+    resp = await open_upstream_stream(client, base_url, payload, token, user_agent)
+    async for chunk in iter_stream_response(resp, first_token_timeout, read_idle_timeout):
+        yield chunk
 
 
 async def fetch_upstream_models(

@@ -17,6 +17,8 @@ function app() {
       project: "aicode-consumers",
       default_model: "gemini-3.8-flash-high",
       strip_base_persona: true,
+      enable_fallback: true,
+      fallback_models_str: "gemini-3.8-flash-medium, claude-sonnet-4-6, gemini-3.7-flash-high",
     },
     models: [],
     modelAliases: {},
@@ -92,6 +94,9 @@ function app() {
           const data = await resp.json();
           if (data.server) {
             this.serverCfg = { ...this.serverCfg, ...data.server };
+            if (Array.isArray(data.server.fallback_models)) {
+              this.serverCfg.fallback_models_str = data.server.fallback_models.join(", ");
+            }
           }
         }
       } catch (e) {}
@@ -256,6 +261,13 @@ function app() {
         }
         if (!(srv.admin_api_key || "").trim()) {
           delete srv.admin_api_key;
+        }
+        if (srv.fallback_models_str !== undefined) {
+          srv.fallback_models = srv.fallback_models_str
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          delete srv.fallback_models_str;
         }
         const resp = await fetch("/api/config", {
           method: "PUT",

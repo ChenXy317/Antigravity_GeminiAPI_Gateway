@@ -25,9 +25,15 @@ DEFAULT_MODELS = [
     {"id": "gemini-3.1-pro-high", "display_name": "Gemini 3.1 Pro (High)"},
     {"id": "gemini-pro-agent", "display_name": "Gemini Pro Agent"},
     {"id": "gemini-3.7-flash-high", "display_name": "Gemini 3.7 Flash (High)"},
-    {"id": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro"},
+    {"id": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro (上游暂无算力)"},
     {"id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6 (Thinking)"},
     {"id": "claude-opus-4-6-thinking", "display_name": "Claude Opus 4.6 (Thinking)"},
+]
+
+DEFAULT_FALLBACK_MODELS: list[str] = [
+    "gemini-3.8-flash-medium",
+    "claude-sonnet-4-6",
+    "gemini-3.7-flash-high",
 ]
 
 DEFAULT_MODEL_ALIASES: dict[str, str] = {
@@ -77,8 +83,19 @@ class ServerConfig(BaseModel):
     upstream_base_url: str = "https://daily-cloudcode-pa.googleapis.com"
     user_agent: str = "antigravity/2.16.0"
     strip_base_persona: bool = False
+    enable_fallback: bool = True
+    fallback_models: list[str] = Field(default_factory=lambda: list(DEFAULT_FALLBACK_MODELS))
     models: list[ModelInfo] = Field(default_factory=lambda: [ModelInfo(**m) for m in DEFAULT_MODELS])
     model_aliases: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_MODEL_ALIASES))
+
+    @field_validator("fallback_models", mode="before")
+    @classmethod
+    def validate_fallback_models(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [m.strip() for m in v.split(",") if m.strip()]
+        if isinstance(v, list):
+            return [str(m).strip() for m in v if str(m).strip()]
+        return list(DEFAULT_FALLBACK_MODELS)
 
 
     @field_validator("upstream_base_url")
